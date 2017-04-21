@@ -13,51 +13,51 @@ type ConfigurationServer struct {
 	endpoint string
 }
 
-func (configServer *ConfigurationServer) GetConfiguration(profiles []string) map[string]interface{} {
+func (configServer *ConfigurationServer) GetConfiguration(serviceId string, profiles []string) map[string]interface{} {
 	toReturn := make(map[string]interface{})
 	for _, profile := range profiles {
-		for k,v := range configServer.loadConfiguration(profile) {
-			toReturn[k] = v
-		}
+		toReturn = mergeMaps(toReturn, configServer.loadConfiguration(serviceId, profile))
 	}
 	return toReturn
 }
 
-func (configServer *ConfigurationServer) loadConfiguration(profile string) map[string]interface{} {
-	url := fmt.Sprintf("%s/application/%s", configServer.endpoint, profile)
-	log.Debugf("Lecture dans la config sur %s", url)
+func mergeMaps(original, added map[string]interface{}) map[string]interface{} {
+	for k,v := range added {
+		original[k] = v
+	}
+	return original
+}
+
+func (configServer *ConfigurationServer) loadConfiguration(serviceId, profile string) map[string]interface{} {
+	url := fmt.Sprintf("%s/%s/%s", configServer.endpoint, serviceId, profile)
+	log.Debugf("Reading configuration on %s", url)
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		log.Errorf("Impossible de lire la configuration dans le configserver, error: %s", err)
+		log.Errorf("Error: %s", err)
 	}
 	req.Header.Add("Content-Type", "application/json")
 	response, err := client.Do(req)
 	defer response.Body.Close()
 	body, err := ioutil.ReadAll(response.Body)
 	if err != nil {
-		log.Errorf("Impossible de lire la configuration dans le configserver, error: %s", err)
+		log.Errorf("Error: %s", err)
 	}
 	configTest := configType{}
-	json.Unmarshal(body, &configTest)
-	if len(configTest.PropertySources)>0 {
-		return configTest.PropertySources[0].Source
+	err = json.Unmarshal(body, &configTest)
+	if err != nil {
+		log.Errorf("Error: %s", err)
 	}
-	return make(map[string]interface{})
-}
+	toReturn := make(map[string]interface{})
 
-func copy (src map[string]interface{}, dest *interface{}) {
-	*dest = src
+	for i := len(configTest.PropertySources)-1 ; i >= 0; i-- {
+		toReturn = mergeMaps(toReturn, configTest.PropertySources[i].Source)
+	}
+	return toReturn
 }
 
 func NewConfigurationServer(endpoint string) ConfigurationServer {
 	return ConfigurationServer{endpoint: endpoint}
-}
-
-type Configuration struct {
-	EurekaEndpoint string `json:"eureka.client.serviceUrl.defaultZone"`
-	EurekaIPAddr   string `json:"eureka.instance.ipAddress"`
-	EurekaPort     string `json:"eureka.instance.nonSecurePort"`
 }
 
 type propertySources struct {
@@ -65,17 +65,7 @@ type propertySources struct {
 	Name   string                 `json:"name"`
 }
 
-type propertySourcesMap struct {
-	Source map[string]string `json:"source"`
-	Name   string            `json:"name"`
-}
-
 type configType struct {
 	Name            string            `json:"name"`
 	PropertySources []propertySources `json:"propertySources"`
-}
-
-type configMap struct {
-	Name               string               `json:"name"`
-	PropertySourcesMap []propertySourcesMap `json:"propertySources"`
 }

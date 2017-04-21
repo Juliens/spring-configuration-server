@@ -9,7 +9,7 @@ import (
 
 func TestSimpleConfiguration(t *testing.T) {
 	var jsonContent string = `
-	{"name":"application", "propertySources":[{"name":"test-name","source":{"server.port":8080}}]}
+	{"name":"application", "propertySources":[{"name":"test-name","source":{"test":"testvalue"}}]}
 
 	`
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -18,58 +18,106 @@ func TestSimpleConfiguration(t *testing.T) {
 	defer ts.Close()
 
 	configurationServer := NewConfigurationServer(ts.URL)
-	config := configurationServer.GetConfiguration([]string{"test"})
-	if _, ok := config["server.port"]; !ok {
-		t.Log("La configuration n'est pas récupérée")
-		t.Fail()
+	config := configurationServer.GetConfiguration("service", []string{"test"})
+
+	testedValues := map[string]interface{
+	}{
+		"test":"testvalue",
 	}
+
+	for k, v := range testedValues {
+		if configValue := config[k]; configValue != v {
+			t.Logf("configVar %s must have %v but has: %v", k, v, configValue)
+			t.Fail()
+		}
+	}
+
 }
 
 
 func TestMultipleProfileConfiguration(t *testing.T) {
-	var firstJsonContent string = `
-	{"name":"application", "propertySources":[{"name":"test-name","source":{"server.port":8080}}]}
+	jsonContents := map[string]string {
+		"/service-id/first":`
+			{
+			"name":"application",
+			"propertySources":[
+				{
+					"name":"service-id",
+					"source":{
+					 	"var1":"first-service-id",
+					 	"all-profiles":"first-service-id",
+					 	"first-3-profiles":"first-service-id",
+					 	"first-2-profiles":"first-service-id"
+					}
+				}, {
+					"name":"application",
+					"source":{
+					 	"var2":"first-application",
+					 	"all-profiles":"first-application",
+					 	"first-3-profiles":"first-application",
+					 	"first-2-profiles":"first-application",
+					 	"first-profiles":"first-application"
+					}
+				}
+			]}
 
-	`
-	var secondJsonContent string = `
-	{"name":"application", "propertySources":[{"name":"test-name","source":{"server.port":8082, "server2.port":8080}}]}
-	`
+			`,
+		"/service-id/second":`
+			{
+			"name":"application",
+			"propertySources":[
+				{
+					"name":"service-id",
+					"source":{
+					 	"var3":"second-service-id",
+					 	"all-profiles":"second-service-id"
+					}
+				},
+				{
+					"name":"application",
+					"source":{
+					 	"var4":"second-application",
+					 	"all-profiles":"second-application",
+					 	"first-3-profiles":"second-application"
+					}
+				}
+			]}
+			`,
+	}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/application/first" {
-			fmt.Fprintln(w, firstJsonContent)
-		} else if r.URL.Path == "/application/second" {
-			fmt.Fprintln(w, secondJsonContent)
+		if content, ok := jsonContents[r.URL.Path]; ok {
+			fmt.Fprintln(w, content)
+		} else {
+			t.Logf("Wrong profile %s", r.URL.Path)
 		}
 	}))
 	defer ts.Close()
 
 	configurationServer := NewConfigurationServer(ts.URL)
-	config := configurationServer.GetConfiguration([]string{"first", "second"})
+	config := configurationServer.GetConfiguration("service-id", []string{"first", "second"})
 
-	if _, ok := config["server.port"]; !ok {
-		t.Log("La configuration n'est pas récupérée")
-		t.Fail()
-	}
-	if _, ok := config["server2.port"]; !ok {
-		t.Log("La configuration n'est pas récupérée")
-		t.Fail()
-	}
-	if (config["server.port"].(float64)) != 8082 {
-		t.Logf("La valeur surchargée doit etre 8082 mais est %v", config["server.port"])
-		t.Fail()
+	existingConfigVars := []string{"var1", "var2", "var3", "var4"}
+
+	for _, configVar := range existingConfigVars {
+		if _, ok := config[configVar]; !ok {
+			t.Logf("configVar %s must exist", configVar)
+			t.Fail()
+		}
 	}
 
-	config = configurationServer.GetConfiguration([]string{"second", "first"})
-	if _, ok := config["server.port"]; !ok {
-		t.Log("La configuration n'est pas récupérée")
-		t.Fail()
+	testedValues := map[string]interface{
+	}{
+		"all-profiles":"second-service-id",
+		"first-3-profiles":"second-application",
+		"first-2-profiles":"first-service-id",
+		"first-profiles":"first-application",
 	}
-	if _, ok := config["server2.port"]; !ok {
-		t.Log("La configuration n'est pas récupérée")
-		t.Fail()
+
+	for k, v := range testedValues {
+		if configValue := config[k]; configValue != v {
+			t.Logf("configVar %s must have %v but has: %v", k, v, configValue)
+			t.Fail()
+		}
 	}
-	if (config["server.port"].(float64)) != 8080 {
-		t.Logf("La valeur surchargée doit etre 8080 mais est %v", config["server.port"])
-		t.Fail()
-	}
+
 }
